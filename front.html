@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>해양 폐어구 모니터링 시스템</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        
+        .glass-effect {
+            backdrop-filter: blur(10px);
+            background: rgba(255, 255, 255, 0.95);
+        }
+        
+        .glass-effect-dark {
+            backdrop-filter: blur(10px);
+            background: rgba(31, 41, 55, 0.95);
+        }
+        
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .gradient-bg-blue {
+            background: linear-gradient(135deg, #3b82f6 0%, #1e40af 100%);
+        }
+        
+        .card-shadow {
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        
+        .card-shadow-hover:hover {
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            transform: translateY(-2px);
+        }
+        
+        .timeline-glow {
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
+        }
+        
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #3b82f6;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+        }
+        
+        input[type="range"]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #3b82f6;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+        }
+        
+        .animate-fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .pulse-animation {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .5; }
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const App = () => {
+            const [isDarkMode, setIsDarkMode] = useState(false);
+            const [currentView, setCurrentView] = useState('home');
+            const mapRef = useRef(null);
+            const barChartRef = useRef(null);
+            const lineChartRef = useRef(null);
+            const collectionChartRef = useRef(null);
+            const barChartInstance = useRef(null);
+            const lineChartInstance = useRef(null);
+            const collectionChartInstance = useRef(null);
+            const [map, setMap] = useState(null);
+            const [isPlaying, setIsPlaying] = useState(true);
+            const [currentTime, setCurrentTime] = useState(0);
+            const [visibleEvents, setVisibleEvents] = useState([]);
+            const [overlays, setOverlays] = useState([]);
+            const [routePolyline, setRoutePolyline] = useState(null);
+            const [showOptimalRoute, setShowOptimalRoute] = useState(false);
+            const [latestDetection, setLatestDetection] = useState(null);
+            const [expandedSections, setExpandedSections] = useState({
+                activity: true,
+                detections: true,
+                events: true
+            });
+
+            const [enabledTypes, setEnabledTypes] = useState({
+                '폐어망': true,
+                '통발': true,
+                '부표': true,
+                '기타': true
+            });
+
+            const [stats, setStats] = useState({ '폐어망': 0, '통발': 0, '부표': 0, '기타': 0 });
+            const [historicalStats, setHistoricalStats] = useState([]);
+            const [collectionStats, setCollectionStats] = useState([]);
+
+            const generateCoastalCoordinates = () => {
+                const coastalRegions = [
+                    { latMin: 35.05, latMax: 35.25, lngMin: 129.10, lngMax: 129.25 },
+                    { latMin: 35.35, latMax: 35.55, lngMin: 129.30, lngMax: 129.45 },
+                    { latMin: 35.15, latMax: 35.30, lngMin: 129.20, lngMax: 129.30 },
+                    { latMin: 35.12, latMax: 35.18, lngMin: 129.12, lngMax: 129.18 }
+                ];
+                const region = coastalRegions[Math.floor(Math.random() * coastalRegions.length)];
+                return {
+                    lat: region.latMin + Math.random() * (region.latMax - region.latMin),
+                    lng: region.lngMin + Math.random() * (region.lngMax - region.lngMin)
+                };
+            };
+
+            const getDetectionImage = (type) => {
+                const images = {
+                    '폐어망': 'https://images.unsplash.com/photo-1559827260-dc66d52bef19?w=400',
+                    '통발': 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=400',
+                    '부표': 'https://images.unsplash.com/photo-1583212292454-1fe6229603b7?w=400',
+                    '기타': 'https://images.unsplash.com/photo-1621451537084-482c73073a0f?w=400'
+                };
+                return images[type] || images['기타'];
+            };
+
+            useEffect(() => {
+                const generateRandomEvents = () => {
+                    const types = ['폐어망', '통발', '부표', '기타'];
+                    const count = 10 + Math.floor(Math.random() * 10);
+                    const newEvents = [];
+                    
+                    for (let i = 0; i < count; i++) {
+                        const coords = generateCoastalCoordinates();
+                        const type = types[Math.floor(Math.random() * types.length)];
+                        const event = {
+                            id: Date.now() + i,
+                            type,
+                            time: `${(9 + Math.floor(Math.random() * 9)).toString().padStart(2, '0')}:${Math.floor(Math.random() * 60).toString().padStart(2, '0')}`,
+                            depth: 20 + Math.floor(Math.random() * 60),
+                            confidence: 75 + Math.floor(Math.random() * 25),
+                            image: getDetectionImage(type),
+                            ...coords
+                        };
+                        newEvents.push(event);
+                    }
+                    
+                    setVisibleEvents(newEvents);
+                    if (newEvents.length > 0) {
+                        setLatestDetection(newEvents[0]);
+                    }
+                };
+
+                generateRandomEvents();
+                const interval = setInterval(generateRandomEvents, 5000);
+                
+                return () => clearInterval(interval);
+            }, []);
+
+            useEffect(() => {
+                const newStats = { '폐어망': 0, '통발': 0, '부표': 0, '기타': 0 };
+                visibleEvents.forEach(event => {
+                    if (enabledTypes[event.type]) {
+                        newStats[event.type]++;
+                    }
+                });
+                setStats(newStats);
+
+                setHistoricalStats(prev => {
+                    const updated = [...prev, newStats];
+                    return updated.slice(-10);
+                });
+
+                setCollectionStats(prev => {
+                    const collected = Math.floor(Math.random() * 5);
+                    const updated = [...prev, collected];
+                    return updated.slice(-10);
+                });
+            }, [visibleEvents, enabledTypes]);
+
+            useEffect(() => {
+                if (!barChartRef.current) return;
+                
+                if (barChartInstance.current) {
+                    barChartInstance.current.destroy();
+                }
+
+                const ctx = barChartRef.current.getContext('2d');
+                barChartInstance.current = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: ['폐어망', '통발', '부표', '기타'],
+                        datasets: [{
+                            label: '탐지 건수',
+                            data: [stats['폐어망'], stats['통발'], stats['부표'], stats['기타']],
+                            backgroundColor: ['#ef4444', '#eab308', '#3b82f6', '#9ca3af'],
+                            borderRadius: 8,
+                            borderSkipped: false,
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { 
+                            legend: { display: false },
+                            tooltip: {
+                                backgroundColor: isDarkMode ? 'rgba(31, 41, 55, 0.9)' : 'rgba(255, 255, 255, 0.9)',
+                                titleColor: isDarkMode ? '#fff' : '#111',
+                                bodyColor: isDarkMode ? '#fff' : '#111',
+                                borderColor: isDarkMode ? '#374151' : '#e5e7eb',
+                                borderWidth: 1,
+                                cornerRadius: 8,
+                                padding: 12
+                            }
+                        },
+                        scales: {
+                            y: { 
+                                beginAtZero: true, 
+                                grid: { color: isDarkMode ? '#374151' : '#f3f4f6', drawBorder: false },
+                                ticks: { color: isDarkMode ? '#9ca3af' : '#6b7280' }
+                            },
+                            x: {
+                                grid: { display: false },
+                                ticks: { color: isDarkMode ? '#9ca3af' : '#6b7280' }
+                            }
+                        }
+                    }
+                });
+
+                return () => {
+                    if (barChartInstance.current) {
+                        barChartInstance.current.destroy();
+                    }
+                };
+            }, [stats, isDarkMode]);
+
+            useEffect(() => {
+                if (!lineChartRef.current || historicalStats.length === 0) return;
+                
+                if (lineChartInstance.current) {
+                    lineChartInstance.current.destroy();
+                }
+
+                const ctx = lineChartRef.current.getContext('2d');
+                lineChartInstance.current = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: historicalStats.map((_, i) => `T-${historicalStats.length - i - 1}`),
+                        datasets: [
+                            { 
+                                label: '폐어망', 
+                                data: historicalStats.map(s => s['폐어망']), 
+                                borderColor: '#ef4444', 
+                                backgroundColor: 'rgba(239, 68, 68, 0.1)', 
+                                tension: 0.4,
+                                borderWidth: 2,
+                                pointRadius: 3,
+                                pointHoverRadius: 5
+                            },
+                            { 
+                                label: '통발', 
+                                data: historicalStats.map(s => s['통발']), 
+                                borderColor: '#eab308', 
+                                backgroundColor: 'rgba(234, 179, 8, 0.1)', 
+                                tension: 0.4,
+                                borderWidth: 2,
+                                pointRadius: 3,
+                                pointHoverRadius: 5
+                            },
+                            { 
+                                label: '부표', 
+                                data: historicalStats.map(s => s['부표']), 
+                                borderColor: '#3b82f6', 
+                                backgroundColor: 'rgba(59, 130, 246, 0.1)', 
+                                tension: 0.4,
+                                borderWidth: 2,
+                                pointRadius: 3,
+                                pointHoverRadius: 5
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { 
+                            legend: { 
+                                display: true, 
+                                position: 'top', 
+                                labels: { 
+                                    boxWidth: 12, 
+                                    padding: 10, 
+                                    font: { size: 11, weight: '500' },
+                                    color: isDarkMode ? '#9ca3af' : '#6b7280',
+                                    usePointStyle: true,
+                                    pointStyle: 'circle'
+                                }
+                            },
+                            tooltip: {
+                                backgroundColor: isDarkMode ? 'rgba(31, 41, 55, 0.9)' : 'rgba(255, 255, 255, 0.9)',
+                                titleColor: isDarkMode ? '#fff' : '#111',
+                                bodyColor: isDarkMode ? '#fff' : '#111',
+                                borderColor: isDarkMode ? '#374151' : '#e5e7eb',
+                                borderWidth: 1,
+                                cornerRadius: 8,
+                                padding: 12
+                            }
+                        },
+                        scales: {
+                            y: { 
+                                beginAtZero: true, 
+                                grid: { color: isDarkMode ? '#374151' : '#f3f4f6', drawBorder: false },
+                                ticks: { color: isDarkMode ? '#9ca3af' : '#6b7280' }
+                            },
+                            x: {
+                                grid: { display: false },
+                                ticks: { color: isDarkMode ? '#9ca3af' : '#6b7280' }
+                            }
+                        }
+                    }
+                });
+
+                return () => {
+                    if (lineChartInstance.current) {
+                        lineChartInstance.current.destroy();
+                    }
+                };
+            }, [historicalStats, isDarkMode]);
+
+            useEffect(() => {
+                if (!collectionChartRef.current || collectionStats.length === 0) return;
+                
+                if (collectionChartInstance.current) {
+                    collectionChartInstance.current.destroy();
+                }
+
+                const ctx = collectionChartRef.current.getContext('2d');
+                collectionChartInstance.current = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: collectionStats.map((_, i) => `T-${collectionStats.length - i - 1}`),
+                        datasets: [{
+                            label: '수거 완료',
+                            data: collectionStats,
+                            borderColor: '#10b981',
+                            backgroundColor: 'rgba(16, 185, 129, 0.2)',
+                            tension: 0.4,
+                            fill: true,
+                            borderWidth: 2,
+                            pointRadius: 3,
+                            pointHoverRadius: 5
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { 
+                            legend: { display: false },
+                            tooltip: {
+                                backgroundColor: isDarkMode ? 'rgba(31, 41, 55, 0.9)' : 'rgba(255, 255, 255, 0.9)',
+                                titleColor: isDarkMode ? '#fff' : '#111',
+                                bodyColor: isDarkMode ? '#fff' : '#111',
+                                borderColor: isDarkMode ? '#374151' : '#e5e7eb',
+                                borderWidth: 1,
+                                cornerRadius: 8,
+                                padding: 12
+                            }
+                        },
+                        scales: {
+                            y: { 
+                                beginAtZero: true, 
+                                grid: { color: isDarkMode ? '#374151' : '#f3f4f6', drawBorder: false },
+                                ticks: { color: isDarkMode ? '#9ca3af' : '#6b7280' }
+                            },
+                            x: {
+                                grid: { display: false },
+                                ticks: { color: isDarkMode ? '#9ca3af' : '#6b7280' }
+                            }
+                        }
+                    }
+                });
+
+                return () => {
+                    if (collectionChartInstance.current) {
+                        collectionChartInstance.current.destroy();
+                    }
+                };
+            }, [collectionStats, isDarkMode]);
+
+            useEffect(() => {
+                const script = document.createElement('script');
+                script.src = 'https://dapi.kakao.com/v2/maps/sdk.js?appkey=d55f35452ff090842c195b700168faa8&autoload=false';
+                script.async = true;
+                document.head.appendChild(script);
+                script.onload = () => {
+                    window.kakao.maps.load(() => {
+                        if (!mapRef.current) return;
+                        const kakaoMap = new window.kakao.maps.Map(mapRef.current, {
+                            center: new window.kakao.maps.LatLng(35.20, 129.20),
+                            level: 9
+                        });
+                        setMap(kakaoMap);
+                    });
+                };
+            }, []);
+
+            useEffect(() => {
+                if (!map) return;
+                overlays.forEach(({ overlay }) => overlay.setMap(null));
+                
+                const created = [];
+
+                visibleEvents.forEach(event => {
+                    if (!enabledTypes[event.type]) return;
+
+                    const pos = new window.kakao.maps.LatLng(event.lat, event.lng);
+                    const color = event.type === '폐어망' ? '#ef4444' : 
+                                 event.type === '통발' ? '#eab308' : 
+                                 event.type === '부표' ? '#3b82f6' : '#9ca3af';
+                    
+                    const div = document.createElement('div');
+                    div.style.cssText = `width:18px;height:18px;background:${color};border:3px solid white;border-radius:50%;box-shadow:0 4px 12px rgba(0,0,0,0.3);transition:all 0.3s;cursor:pointer;`;
+                    
+                    const overlay = new window.kakao.maps.CustomOverlay({ position: pos, content: div, yAnchor: 0.5 });
+                    overlay.setMap(map);
+                    created.push({ overlay, event });
+
+                    div.addEventListener('mouseover', () => {
+                        div.style.transform = 'scale(1.4)';
+                        div.style.boxShadow = '0 6px 20px rgba(0,0,0,0.4)';
+                    });
+                    div.addEventListener('mouseout', () => {
+                        div.style.transform = 'scale(1)';
+                        div.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
+                    });
+                });
+                
+                setOverlays(created);
+            }, [map, visibleEvents, enabledTypes]);
+
+            useEffect(() => {
+                if (!map || !showOptimalRoute) {
+                    if (routePolyline) {
+                        routePolyline.setMap(null);
+                        setRoutePolyline(null);
+                    }
+                    return;
+                }
+
+                const activeEvents = visibleEvents.filter(e => enabledTypes[e.type]);
+                if (activeEvents.length < 2) return;
+
+                const sorted = [...activeEvents].sort((a, b) => (a.lat + a.lng) - (b.lat + b.lng));
+                const path = sorted.map(e => new window.kakao.maps.LatLng(e.lat, e.lng));
+
+                if (routePolyline) routePolyline.setMap(null);
+
+                const polyline = new window.kakao.maps.Polyline({
+                    path: path,
+                    strokeWeight: 4,
+                    strokeColor: '#3b82f6',
+                    strokeOpacity: 0.8,
+                    strokeStyle: 'solid'
+                });
+
+                polyline.setMap(map);
+                setRoutePolyline(polyline);
+            }, [map, showOptimalRoute, visibleEvents, enabledTypes]);
+
+            useEffect(() => {
+                if (isPlaying) {
+                    const interval = setInterval(() => {
+                        setCurrentTime(prev => prev >= 100 ? 0 : prev + 0.5);
+                    }, 100);
+                    return () => clearInterval(interval);
+                }
+            }, [isPlaying]);
+
+            const handleCollectAll = () => {
+                const count = visibleEvents.filter(e => enabledTypes[e.type]).length;
+                alert(`${count}건의 폐어구 수거 작업을 시작합니다.`);
+            };
+
+            const handleRouteRequest = () => {
+                setShowOptimalRoute(!showOptimalRoute);
+                if (!showOptimalRoute) {
+                    alert('최적 경로를 계산했습니다.');
+                }
+            };
+
+            const bgClass = isDarkMode ? 'bg-gray-900 text-gray-100' : 'bg-gray-50 text-gray-900';
+            const sidebarBg = isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200';
+            const cardBg = isDarkMode ? 'bg-gray-750' : 'bg-white';
+            const hoverBg = isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-50';
+
+            return (
+                <div className={`flex h-screen ${bgClass}`}>
+                    {/* 사이드바 */}
+                    <div className={`w-96 overflow-y-auto border-r ${sidebarBg} shadow-2xl flex flex-col`}>
+                        {/* 헤더 */}
+                        <div className={`p-5 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} sticky top-0 z-10 ${isDarkMode ? 'glass-effect-dark' : 'glass-effect'}`}>
+                            <div className="flex items-center justify-between mb-5">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-11 h-11 gradient-bg-blue rounded-xl flex items-center justify-center shadow-lg">
+                                        <span className="text-white text-2xl">🌊</span>
+                                    </div>
+                                    <div>
+                                        <h1 className="text-lg font-bold">Marine Monitor</h1>
+                                        <p className="text-xs opacity-60">실시간 해양 모니터링</p>
+                                    </div>
+                                </div>
+                                <button onClick={() => setIsDarkMode(!isDarkMode)} className={`p-2.5 rounded-xl ${isDarkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'} transition-all duration-200`}>
+                                    <span className="text-xl">{isDarkMode ? '☀️' : '🌙'}</span>
+                                </button>
+                            </div>
+
+                            {/* 홈/검색 버튼 */}
+                            <div className="flex gap-2">
+                                <button 
+                                    onClick={() => setCurrentView('home')}
+                                    className={`flex-1 py-3 rounded-xl flex flex-col items-center justify-center gap-1 transition-all duration-200 ${
+                                        currentView === 'home' 
+                                            ? 'gradient-bg-blue text-white shadow-lg' 
+                                            : `${isDarkMode ? 'bg-gray-700 text-gray-300 hover:bg-gray-650' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`
+                                    }`}
+                                >
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                                    </svg>
+                                    <span className="text-xs font-semibold">홈</span>
+                                </button>
+                                <button 
+                                    onClick={() => setCurrentView('search')}
+                                    className={`flex-1 py-3 rounded-xl flex flex-col items-center justify-center gap-1 transition-all duration-200 ${
+                                        currentView === 'search' 
+                                            ? 'gradient-bg-blue text-white shadow-lg' 
+                                            : `${isDarkMode ? 'bg-gray-700 text-gray-300 hover:bg-gray-650' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`
+                                    }`}
+                                >
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                    </svg>
+                                    <span className="text-xs font-semibold">검색</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* 홈 화면 */}
+                        {currentView === 'home' && (
+                            <div className="flex-1 overflow-y-auto p-5 space-y-5 animate-fade-in">
+                                {latestDetection && (
+                                    <>
+                                        {/* 최신 탐지 */}
+                                        <div>
+                                            <div className="flex items-center gap-2 mb-3">
+                                                <div className="w-2 h-2 bg-red-500 rounded-full pulse-animation"></div>
+                                                <h2 className="text-sm font-bold uppercase tracking-wider">최신 탐지</h2>
+                                            </div>
+                                            <div className={`${cardBg} rounded-2xl border ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} overflow-hidden card-shadow card-shadow-hover transition-all duration-200`}>
+                                                <img 
+                                                    src={latestDetection.image} 
+                                                    alt={latestDetection.type}
+                                                    className="w-full h-52 object-cover"
+                                                />
+                                                <div className="p-5 space-y-3">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-xl font-bold text-red-500">{latestDetection.type}</span>
+                                                        <span className="text-sm bg-gradient-to-r from-green-400 to-green-600 text-white px-3 py-1.5 rounded-full font-bold shadow-lg">
+                                                            {latestDetection.confidence}%
+                                                        </span>
+                                                    </div>
+                                                    <div className={`text-sm space-y-2 p-3 rounded-xl ${isDarkMode ? 'bg-gray-800' : 'bg-gray-50'}`}>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-lg">📍</span>
+                                                            <span className="font-medium opacity-90">위도: {latestDetection.lat.toFixed(4)}°N</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-lg">📍</span>
+                                                            <span className="font-medium opacity-90">경도: {latestDetection.lng.toFixed(4)}°E</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-lg">⏰</span>
+                                                            <span className="font-medium opacity-90">시간: {latestDetection.time}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-lg">🌊</span>
+                                                            <span className="font-medium opacity-90">깊이: {latestDetection.depth}m</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* 탐지 현황 */}
+                                        <div>
+                                            <h2 className="text-sm font-bold uppercase tracking-wider mb-3">탐지 현황</h2>
+                                            <div className={`${cardBg} rounded-2xl p-5 border ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} card-shadow`}>
+                                                <div className="h-52">
+                                                    <canvas ref={barChartRef}></canvas>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* 시간별 탐지 추이 */}
+                                        <div>
+                                            <h2 className="text-sm font-bold uppercase tracking-wider mb-3">시간별 탐지 추이</h2>
+                                            <div className={`${cardBg} rounded-2xl p-5 border ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} card-shadow`}>
+                                                <div className="h-52">
+                                                    <canvas ref={lineChartRef}></canvas>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* 수거 현황 */}
+                                        <div>
+                                            <h2 className="text-sm font-bold uppercase tracking-wider mb-3">수거 현황</h2>
+                                            <div className={`${cardBg} rounded-2xl p-5 border ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} card-shadow`}>
+                                                <div className="h-52">
+                                                    <canvas ref={collectionChartRef}></canvas>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* 버튼들 */}
+                                        <div className="space-y-3">
+                                            <button 
+                                                onClick={handleRouteRequest}
+                                                className={`w-full py-4 rounded-xl font-bold text-sm transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 ${
+                                                    showOptimalRoute 
+                                                        ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white' 
+                                                        : 'bg-gradient-to-r from-purple-500 to-indigo-600 text-white'
+                                                }`}
+                                            >
+                                                {showOptimalRoute ? '✓ 최적 경로 표시 중' : '🗺️ 최적 경로 추천'}
+                                            </button>
+
+                                            <button 
+                                                onClick={handleCollectAll}
+                                                className="w-full bg-gradient-to-r from-blue-500 to-blue-700 text-white py-4 rounded-xl font-bold text-sm transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+                                            >
+                                                📦 전체 수거 요청 ({visibleEvents.filter(e => enabledTypes[e.type]).length}건)
+                                            </button>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        )}
+
+                        {/* 검색 화면 */}
+                        {currentView === 'search' && (
+                            <div className="flex-1 overflow-y-auto animate-fade-in">
+                                {/* ACTIVITY */}
+                                <div className={`border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+                                    <button onClick={() => setExpandedSections({...expandedSections, activity: !expandedSections.activity})} className={`w-full p-4 flex items-center justify-between ${hoverBg} transition-colors`}>
+                                        <span className="text-sm font-bold uppercase tracking-wider">Activity</span>
+                                        <span className="text-lg">{expandedSections.activity ? '▲' : '▼'}</span>
+                                    </button>
+                                    {expandedSections.activity && (
+                                        <div className="px-4 pb-4 space-y-3">
+                                            <div className={`${cardBg} rounded-xl p-4 border ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} card-shadow`}>
+                                                <h3 className="text-sm font-bold mb-3">현재 탐지 현황</h3>
+                                                <div className="h-40">
+                                                    <canvas ref={barChartRef}></canvas>
+                                                </div>
+                                            </div>
+                                            <div className={`${cardBg} rounded-xl p-4 border ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} card-shadow`}>
+                                                <h3 className="text-sm font-bold mb-3">시간별 추이</h3>
+                                                <div className="h-40">
+                                                    <canvas ref={lineChartRef}></canvas>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* DETECTIONS */}
+                                <div className={`border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+                                    <button onClick={() => setExpandedSections({...expandedSections, detections: !expandedSections.detections})} className={`w-full p-4 flex items-center justify-between ${hoverBg} transition-colors`}>
+                                        <span className="text-sm font-bold uppercase tracking-wider">Detections</span>
+                                        <span className="text-lg">{expandedSections.detections ? '▲' : '▼'}</span>
+                                    </button>
+                                    {expandedSections.detections && (
+                                        <div className="px-4 pb-4 space-y-2">
+                                            {Object.keys(enabledTypes).map(type => (
+                                                <label key={type} className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer ${hoverBg} transition-all`}>
+                                                    <input type="checkbox" checked={enabledTypes[type]} onChange={() => setEnabledTypes({...enabledTypes, [type]: !enabledTypes[type]})} className="w-5 h-5 rounded" />
+                                                    <div className="w-4 h-4 rounded-full shadow-md" style={{background: type === '폐어망' ? '#ef4444' : type === '통발' ? '#eab308' : type === '부표' ? '#3b82f6' : '#9ca3af'}}></div>
+                                                    <span className="text-sm font-medium">{type} <span className="opacity-60">({stats[type]}건)</span></span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* EVENTS */}
+                                <div className={`border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} flex-1`}>
+                                    <button onClick={() => setExpandedSections({...expandedSections, events: !expandedSections.events})} className={`w-full p-4 flex items-center justify-between ${hoverBg} transition-colors`}>
+                                        <span className="text-sm font-bold uppercase tracking-wider">Events ({visibleEvents.filter(e => enabledTypes[e.type]).length})</span>
+                                        <span className="text-lg">{expandedSections.events ? '▲' : '▼'}</span>
+                                    </button>
+                                    {expandedSections.events && (
+                                        <div className="px-4 pb-4 space-y-2">
+                                            <label className={`flex items-center gap-2 mb-3 p-3 rounded-xl ${hoverBg} cursor-pointer transition-all`}>
+                                                <input type="checkbox" checked={showOptimalRoute} onChange={() => setShowOptimalRoute(!showOptimalRoute)} className="w-5 h-5 rounded" />
+                                                <span className="text-sm font-medium">최적 경로 표시</span>
+                                            </label>
+                                            {visibleEvents.filter(e => enabledTypes[e.type]).slice(0, 8).map(event => (
+                                                <div key={event.id} className={`${cardBg} rounded-xl p-4 border ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} card-shadow-hover transition-all`}>
+                                                    <div className="flex items-center justify-between mb-2">
+                                                        <span className="text-sm font-bold">{event.type}</span>
+                                                        <span className="text-xs bg-green-500 text-white px-2 py-1 rounded-full font-bold">{event.confidence}%</span>
+                                                    </div>
+                                                    <div className="text-xs opacity-75 space-y-1">
+                                                        <div>⏰ {event.time} | 🌊 {event.depth}m</div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* 수거하기 버튼 */}
+                                <div className="p-4">
+                                    <button onClick={handleCollectAll} className="w-full bg-gradient-to-r from-blue-500 to-blue-700 hover:from-blue-600 hover:to-blue-800 text-white py-4 rounded-xl font-bold text-sm transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5">
+                                        전체 수거하기 ({visibleEvents.filter(e => enabledTypes[e.type]).length}건)
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* 지도 영역 */}
+                    <div className="flex-1 relative">
+                        <div ref={mapRef} className="w-full h-full" />
+                        
+                        {/* 타임라인 - z-index 수정 */}
+                        <div style={{zIndex: 1000}} className={`absolute bottom-0 left-0 right-0 ${isDarkMode ? 'glass-effect-dark' : 'glass-effect'} border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} py-4 px-6 shadow-2xl`}>
+                            <div className="flex items-center gap-4 mb-3">
+                                <button onClick={() => setIsPlaying(!isPlaying)} className="w-12 h-12 bg-gradient-to-r from-blue-600 to-blue-800 rounded-xl hover:from-blue-700 hover:to-blue-900 flex items-center justify-center shadow-lg transition-all transform hover:scale-105">
+                                    <span className="text-white text-xl">{isPlaying ? '⏸' : '▶'}</span>
+                                </button>
+                                <div className="flex gap-2 text-xs rounded-xl p-1.5" style={{background: isDarkMode ? 'rgba(55, 65, 81, 0.5)' : 'rgba(243, 244, 246, 0.5)'}}>
+                                    <button className="px-5 py-2 rounded-lg font-bold bg-gradient-to-r from-blue-600 to-blue-800 text-white shadow-md">DAY</button>
+                                    <button className="px-5 py-2 rounded-lg font-bold bg-gradient-to-r from-blue-600 to-blue-800 text-white shadow-md">HOUR</button>
+                                </div>
+                                <div className="ml-auto text-sm font-bold flex items-center gap-2">
+                                    <div className="w-2 h-2 bg-green-500 rounded-full pulse-animation"></div>
+                                    실시간 탐지 중
+                                </div>
+                            </div>
+                            
+                            <div className="relative h-14 rounded-xl overflow-hidden mb-3 border-2" style={{background: isDarkMode ? '#1f2937' : '#eff6ff', borderColor: isDarkMode ? '#374151' : '#bfdbfe'}}>
+                                <svg width="100%" height="100%">
+                                    <defs>
+                                        <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="0%">
+                                            <stop offset="0%" style={{stopColor: '#1e3a8a', stopOpacity: 0.4}} />
+                                            <stop offset="50%" style={{stopColor: '#1e40af', stopOpacity: 0.7}} />
+                                            <stop offset="100%" style={{stopColor: '#1e3a8a', stopOpacity: 0.4}} />
+                                        </linearGradient>
+                                    </defs>
+                                    <path d="M0,30 L50,20 L100,35 L150,15 L200,40 L250,10 L300,30 L350,20 L400,35 L450,25 L500,40 L550,20 L600,30 L650,25 L700,35 L750,20 L800,30 L850,25 L900,40 L950,30 L1000,35 L1050,25 L1100,40 L1150,30 L1200,35 L1250,25 L1300,30 L1350,20 L1400,35 L1450,25 L1500,30 L1500,56 L0,56 Z" fill="url(#grad)"/>
+                                </svg>
+                                <div className="absolute top-1/2 transform -translate-y-1/2" style={{left: `${currentTime}%`, zIndex: 30}}>
+                                    <div className="w-5 h-5 bg-blue-600 rounded-full border-3 border-white shadow-xl timeline-glow"></div>
+                                </div>
+                            </div>
+                            
+                            <input type="range" min="0" max="100" step="0.1" value={currentTime} onChange={(e) => setCurrentTime(Number(e.target.value))} className="w-full h-2 rounded-full appearance-none cursor-pointer" style={{background: isDarkMode ? '#374151' : '#bfdbfe'}} />
+                            
+                            <div className="flex justify-between text-xs font-medium opacity-60 mt-2">
+                                <span>시작</span>
+                                <span>진행 중</span>
+                                <span>현재</span>
+                            </div>
+                        </div>
+
+                        {/* 컨트롤 */}
+                        <div className="absolute top-6 right-6 space-y-3" style={{zIndex: 100}}>
+                            <button onClick={() => map && map.setLevel(map.getLevel() - 1)} className={`w-12 h-12 ${isDarkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl flex items-center justify-center shadow-xl hover:shadow-2xl transition-all transform hover:scale-110`}>
+                                <span className="text-2xl font-bold">+</span>
+                            </button>
+                            <button onClick={() => map && map.setLevel(map.getLevel() + 1)} className={`w-12 h-12 ${isDarkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl flex items-center justify-center shadow-xl hover:shadow-2xl transition-all transform hover:scale-110`}>
+                                <span className="text-2xl font-bold">−</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
