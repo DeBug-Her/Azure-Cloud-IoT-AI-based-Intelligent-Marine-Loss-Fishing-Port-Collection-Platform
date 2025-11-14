@@ -1,7 +1,7 @@
 import React from 'react';
 import Header from './Header';
-import HomeView from './views/HomeView';
-import SearchView from './views/SearchView';
+import DetectionView from './views/DetectionView';
+import CollectionView from './views/CollectionView';
 
 const Sidebar = ({
   isDarkMode,
@@ -18,9 +18,7 @@ const Sidebar = ({
   showOptimalRoute,
   setShowOptimalRoute,
   handleRouteRequest,
-  handleCollectAll,
-  expandedSections,
-  setExpandedSections
+  handleCollectAll
 }) => {
   const sidebarBg = isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200';
 
@@ -33,34 +31,27 @@ const Sidebar = ({
         setCurrentView={setCurrentView}
       />
 
-      {currentView === 'home' && (
-        <HomeView
+      {currentView === 'detection' && (
+        <DetectionView
           latestDetection={latestDetection}
           stats={stats}
           historicalStats={historicalStats}
+          isDarkMode={isDarkMode}
+          visibleEvents={visibleEvents}
+          enabledTypes={enabledTypes}
+          setEnabledTypes={setEnabledTypes}
+          showOptimalRoute={showOptimalRoute}
+          handleRouteRequest={handleRouteRequest}
+        />
+      )}
+
+      {currentView === 'collection' && (
+        <CollectionView
           collectionStats={collectionStats}
           isDarkMode={isDarkMode}
           visibleEvents={visibleEvents}
           enabledTypes={enabledTypes}
-          showOptimalRoute={showOptimalRoute}
-          handleRouteRequest={handleRouteRequest}
           handleCollectAll={handleCollectAll}
-        />
-      )}
-
-      {currentView === 'search' && (
-        <SearchView
-          expandedSections={expandedSections}
-          setExpandedSections={setExpandedSections}
-          stats={stats}
-          historicalStats={historicalStats}
-          enabledTypes={enabledTypes}
-          setEnabledTypes={setEnabledTypes}
-          visibleEvents={visibleEvents}
-          showOptimalRoute={showOptimalRoute}
-          setShowOptimalRoute={setShowOptimalRoute}
-          handleCollectAll={handleCollectAll}
-          isDarkMode={isDarkMode}
         />
       )}
     </div>

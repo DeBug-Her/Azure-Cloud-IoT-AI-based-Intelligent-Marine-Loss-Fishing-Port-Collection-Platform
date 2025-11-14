@@ -7,13 +7,8 @@ import './styles/globals.css';
 
 function App() {
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const [currentView, setCurrentView] = useState('home');
+  const [currentView, setCurrentView] = useState('detection');
   const [showOptimalRoute, setShowOptimalRoute] = useState(false);
-  const [expandedSections, setExpandedSections] = useState({
-    activity: true,
-    detections: true,
-    events: true
-  });
 
   const {
     visibleEvents,
@@ -57,8 +52,6 @@ function App() {
         setShowOptimalRoute={setShowOptimalRoute}
         handleRouteRequest={handleRouteRequest}
         handleCollectAll={handleCollectAll}
-        expandedSections={expandedSections}
-        setExpandedSections={setExpandedSections}
       />
 
       <div className="flex-1 relative">
